@@ -284,37 +284,65 @@ public class SpringApplication {
 	 * @return a running {@link ApplicationContext}
 	 */
 	public ConfigurableApplicationContext run(String... args) {
+		// 开启任务执行时间监听器
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
 		ConfigurableApplicationContext context = null;
 		Collection<SpringBootExceptionReporter> exceptionReporters = new ArrayList<>();
+		// 设置系统属性【java.awt.headless】，为ture,启用headless模式支持
 		configureHeadlessProperty();
+		//通过*SpringFactoriesLoader*检索*META-INF/spring.factories*，
+		//找到声明的所有SpringApplicationRunListener的实现类并将其实例化，
+		//之后逐个调用其starting()方法，广播SpringBoot要开始执行了。
 		SpringApplicationRunListeners listeners = getRunListeners(args);
 		listeners.starting();
 		try {
 			ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);
+			//创建并配置当前SpringBoot应用将要使用的Environment（包括配置要使用的PropertySource以及Profile）,
+			//并遍历调用所有的SpringApplicationRunListener的environmentPrepared()方法，广播Environment准备完毕。
 			ConfigurableEnvironment environment = prepareEnvironment(listeners, applicationArguments);
 			configureIgnoreBeanInfo(environment);
+			//决定是否打印Banner
 			Banner printedBanner = printBanner(environment);
+			//根据webEnvironment的值来决定创建何种类型的ApplicationContext对象
+			//如果是web环境，则创建AnnotationConfigServletWebServerApplicationContext
+			//如果是reactive环境，则创建AnnotationConfigReactiveWebServerApplicationContext
+			//否则创建AnnotationConfigApplicationContext
 			context = createApplicationContext();
+			//注册异常分析器
 			exceptionReporters = getSpringFactoriesInstances(SpringBootExceptionReporter.class,
 					new Class[] { ConfigurableApplicationContext.class }, context);
+			//为ApplicationContext加载environment，之后逐个执行ApplicationContextInitializer的initialize()方法来进一步封装ApplicationContext，
+			//并调用所有的SpringApplicationRunListener的contextPrepared()方法，【EventPublishingRunListener只提供了一个空的contextPrepared()方法】，
+			//之后初始化IoC容器，并调用SpringApplicationRunListener的contextLoaded()方法，广播ApplicationContext的IoC加载完成，
+			//这里就包括通过**@EnableAutoConfiguration**导入的各种自动配置类。
 			prepareContext(context, environment, listeners, applicationArguments, printedBanner);
+			//初始化所有自动配置类，调用ApplicationContext的refresh()方法
 			refreshContext(context);
+
+			//该过程可以理解为是SpringBoot完成ApplicationContext初始化前的最后一步工作，
 			afterRefresh(context, applicationArguments);
+			//关闭任务执行时间监听器
 			stopWatch.stop();
+
+			//如果开启日志，则答应执行的时间
 			if (this.logStartupInfo) {
 				new StartupInfoLogger(this.mainApplicationClass).logStarted(getApplicationLog(), stopWatch);
 			}
+
+			//调用所有的SpringApplicationRunListener的started()方法，广播SpringBoot已经完成了ApplicationContext初始化的全部过程。
 			listeners.started(context);
+			//遍历所有注册的ApplicationRunner和CommandLineRunner，并执行其run()方法。
 			callRunners(context, applicationArguments);
 		}
 		catch (Throwable ex) {
+			//调用异常分析器打印报告，调用所有的SpringApplicationRunListener的failed()方法将异常信息发布出去
 			handleRunFailure(context, ex, exceptionReporters, listeners);
 			throw new IllegalStateException(ex);
 		}
 
 		try {
+			// 调用所有的SpringApplicationRunListener的running()
 			listeners.running(context);
 		}
 		catch (Throwable ex) {
